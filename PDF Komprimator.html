@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <title>PDF Komprimator</title>
+  <style>
+    /* Enkel, integrert CSS */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f7f7f7;
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+    #container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+    input[type="file"],
+    button {
+      display: block;
+      margin: 10px auto;
+    }
+    textarea {
+      width: 100%;
+      height: 200px;
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      resize: vertical;
+    }
+    button {
+      padding: 10px 20px;
+      border: none;
+      background-color: #007BFF;
+      color: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <h1>PDF Komprimator</h1>
+    <input type="file" id="pdfInput" accept="application/pdf">
+    <button id="extractBtn">Ekstraher Tekst</button>
+    <textarea id="output" placeholder="Ekstrahert tekst vises her..."></textarea>
+    <button id="downloadBtn" style="display:none;">Last ned komprimert PDF</button>
+  </div>
+
+  <script>
+    // Funksjon for å laste inn eksterne skript dynamisk
+    function loadScript(url, callback) {
+      var script = document.createElement("script");
+      script.src = url;
+      script.onload = callback;
+      document.head.appendChild(script);
+    }
+
+    // Teller for hvor mange biblioteker som skal lastes
+    var scriptsToLoad = 2;
+    function scriptLoaded() {
+      scriptsToLoad--;
+      if (scriptsToLoad === 0) {
+        initApp();
+      }
+    }
+
+    // Last inn PDF.js og jsPDF fra CDN
+    loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js", scriptLoaded);
+    loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", scriptLoaded);
+
+    let originalFileName = "output.pdf"; // Standardverdi hvis ingen fil er valgt
+
+    function initApp() {
+      const pdfInput = document.getElementById('pdfInput');
+      const extractBtn = document.getElementById('extractBtn');
+      const output = document.getElementById('output');
+      const downloadBtn = document.getElementById('downloadBtn');
+      
+      let extractedText = "";
+
+      extractBtn.addEventListener('click', () => {
+        if (pdfInput.files.length === 0) {
+          alert("Vennligst velg en PDF-fil.");
+          return;
+        }
+        const file = pdfInput.files[0];
+        originalFileName = file.name;
+        const fileReader = new FileReader();
+        
+        fileReader.onload = function() {
+          const typedarray = new Uint8Array(this.result);
+          // Bruk PDF.js for å lese PDF‑dokumentet
+          pdfjsLib.getDocument(typedarray).promise.then(function(pdf) {
+            let totalPages = pdf.numPages;
+            let pageTextPromises = [];
+            // Gå gjennom alle sidene og hent ut tekst
+            for (let i = 1; i <= totalPages; i++) {
+              pageTextPromises.push(
+                pdf.getPage(i).then(function(page) {
+                  return page.getTextContent().then(function(textContent) {
+                    let pageText = textContent.items.map(item => item.str).join(" ");
+                    return pageText;
+                  });
+                })
+              );
+            }
+            Promise.all(pageTextPromises).then(function(pagesText) {
+              extractedText = pagesText.join("\n\n");
+              output.value = extractedText;
+              downloadBtn.style.display = "inline-block";
+            });
+          }).catch(function(error) {
+            console.error("Error: " + error);
+            alert("Kunne ikke lese PDF‑filen.");
+          });
+        };
+        fileReader.readAsArrayBuffer(file);
+      });
+      
+      downloadBtn.addEventListener('click', () => {
+        if (!extractedText) {
+          alert("Ingen tekst å laste ned.");
+          return;
+        }
+        // Bruk jsPDF for å lage en ny PDF med kun tekst
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const margin = 10;
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const availableWidth = pageWidth - 2 * margin;
+        let lines = doc.splitTextToSize(extractedText, availableWidth);
+        const lineHeight = 10; // Estimert linjehøyde
+        let y = margin;
+        
+        // Legg til alle linjer, og opprett nye sider ved behov
+        for (let i = 0; i < lines.length; i++) {
+          if (y + lineHeight > pageHeight - margin) {
+            doc.addPage();
+            y = margin;
+          }
+          doc.text(lines[i], margin, y);
+          y += lineHeight;
+        }
+        
+        // Lag nytt filnavn basert på originalen med addon _Komprimert
+        let baseName = originalFileName;
+        const dotIndex = originalFileName.lastIndexOf(".");
+        if (dotIndex > 0) {
+          baseName = originalFileName.substring(0, dotIndex);
+        }
+        const newFileName = baseName + "_Komprimert.pdf";
+        doc.save(newFileName);
+      });
+    }
+  </script>
+</body>
+</html>
